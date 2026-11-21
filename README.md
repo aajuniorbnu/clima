@@ -167,3 +167,31 @@ Sem S3 configurado, o download do PDF funciona e o botão de envio informa a con
 O histórico existente permanece em SQLite (`qualidade_ar.db`); PostgreSQL ainda não foi configurado. PDFs são objetos no S3, não linhas do banco. A previsão não é persistida em banco nesta versão.
 
 Referências: https://open-meteo.com/en/docs | https://open-meteo.com/en/docs/geocoding-api | https://docs.aws.amazon.com/boto3/latest/guide/s3-uploading-files.html
+
+## PostgreSQL integrado ao SQLite
+
+Atualização: agora existe um banco PostgreSQL local `clima`, com usuário dedicado `clima_app` (sem privilégios de superusuário). Nesta máquina a conexão usa o socket `/tmp`, porta 5432, pela autenticação local já existente. Configure `POSTGRES_DSN` no `.env`; em outros computadores use host, usuário e senha apropriados. O banco e o usuário devem existir antes da primeira execução.
+
+O SQLite continua sendo a origem e atende `/historico`. A API copia as consultas para PostgreSQL ao iniciar e a cada 30 segundos. Esta integração é unidirecional: alterar linhas no PostgreSQL não altera o SQLite. Mock e OpenAQ permanecem identificados pela coluna fonte. A previsão meteorológica continua consultada ao vivo e os PDFs continuam destinados ao S3.
+
+A tabela PostgreSQL `consultas` contém origem UUID, sqlite_id, cidade, fonte, consultado_em (TIMESTAMPTZ), resposta_json (JSONB) e sincronizado_em. A chave `(origem, sqlite_id)` evita duplicações. O SQLite guarda sua identidade em `sync_metadata` e confirmações em `postgres_enviados`. Cada lote só é confirmado localmente após commit remoto; falhas deixam as linhas pendentes para tentar novamente. Mesmo se ocorrer uma falha entre os dois commits, o reenvio não duplica dados. A sincronização não é uma transação distribuída e pode haver atraso entre os bancos.
+
+Para sincronizar manualmente:
+
+```bash
+cd /Users/aajuniorbnu/Desktop/clima/qualidade_ar
+source .venv/bin/activate
+python postgres_sync.py
+```
+
+Para consultar o espelho local:
+
+```bash
+psql -U clima_app -d clima
+```
+
+```sql
+SELECT cidade, fonte, consultado_em FROM consultas ORDER BY consultado_em DESC;
+```
+
+Se POSTGRES_DSN estiver vazio, funciona somente com SQLite. Se o PostgreSQL estiver indisponível, a API mantém consultas no SQLite e tenta sincronizar novamente. Faça backup dos dois bancos. Se apagar/restaurar o destino PostgreSQL, remova as confirmações correspondentes de `postgres_enviados` no SQLite para reenviar o histórico; não apague a identidade em sync_metadata. A cópia do mesmo arquivo SQLite mantém a mesma origem intencionalmente.

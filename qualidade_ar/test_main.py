@@ -7,6 +7,7 @@ import main
 
 @pytest.fixture
 def client(tmp_path, monkeypatch):
+    monkeypatch.setenv('POSTGRES_DSN', '')
     monkeypatch.setattr(main, 'DB', tmp_path / 'test.db')
     monkeypatch.setattr(main, 'MOCK', True)
     with TestClient(main.app) as client:

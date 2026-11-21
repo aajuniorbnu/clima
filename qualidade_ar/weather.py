@@ -76,6 +76,7 @@ async def previsao(local_id: int = Query(..., gt=0)):
         local = local_publico(place)
         data = await get_json(FORECAST, {'latitude': local['latitude'], 'longitude': local['longitude'],
             'daily': ','.join(FIELDS), 'timezone': 'auto', 'forecast_days': 7,
+            'current': 'temperature_2m,relative_humidity_2m,apparent_temperature,is_day,weather_code,wind_speed_10m',
             'temperature_unit': 'celsius', 'wind_speed_unit': 'kmh', 'precipitation_unit': 'mm'})
         daily = data['daily']
         if len(daily['time']) != 7 or any(len(daily[field]) != 7 for field in FIELDS):
@@ -86,7 +87,14 @@ async def previsao(local_id: int = Query(..., gt=0)):
                 'chuva_probabilidade': daily[FIELDS[2]][i], 'chuva_mm': daily[FIELDS[3]][i],
                 'vento_kmh': daily[FIELDS[4]][i], 'condicao': condicao(daily[FIELDS[5]][i])})
         return {'local': local, 'fuso': data['timezone'], 'fonte': 'Open-Meteo',
-                'consultado_em': datetime.now(timezone.utc).isoformat(), 'dias': days}
+                'consultado_em': datetime.now(timezone.utc).isoformat(), 'dias': days,
+                'atual': {'temperatura_c': data.get('current', {}).get('temperature_2m'),
+                    'sensacao_c': data.get('current', {}).get('apparent_temperature'),
+                    'umidade': data.get('current', {}).get('relative_humidity_2m'),
+                    'vento_kmh': data.get('current', {}).get('wind_speed_10m'),
+                    'condicao': condicao(data.get('current', {}).get('weather_code')),
+                    'codigo': data.get('current', {}).get('weather_code'),
+                    'horario': data.get('current', {}).get('time')}}
     except (KeyError, TypeError, ValueError, IndexError):
         raise HTTPException(502, 'O provedor retornou uma previsão incompleta ou inválida.')
 

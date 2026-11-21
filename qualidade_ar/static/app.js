@@ -132,13 +132,23 @@ async function loadForecast(place, button) {
     selectedLocation = place.id;
     $('forecast-place').textContent = [data.local.nome,data.local.estado,data.local.pais].filter(Boolean).join(', ');
     $('forecast-timezone').textContent = `Fuso: ${data.fuso} · Consulta: ${formatDate(data.consultado_em)}`;
+    const current = data.atual || {};
+    $('current-temp').textContent = number(current.temperatura_c,' °C');
+    $('current-condition').textContent = current.condicao || 'Condições indisponíveis';
+    $('current-icon').textContent = weatherIcon(current.condicao);
+    $('current-feels').textContent = number(current.sensacao_c,' °C');
+    $('current-humidity').textContent = number(current.umidade,'%');
+    $('current-wind').textContent = number(current.vento_kmh,' km/h');
+    $('today-rain').textContent = number(data.dias[0].chuva_probabilidade,'%');
+    $('current-range').textContent = `Máx. ${number(data.dias[0].max_c,' °C')} · Mín. ${number(data.dias[0].min_c,' °C')}`;
+    $('current-time').textContent = current.horario ? `Atualização: ${current.horario.replace('T',' às ')} · ${data.fuso}` : 'Horário atual indisponível';
     $('forecast-days').replaceChildren();
     data.dias.forEach(day => {
       const card = element('article','','forecast-day');
       const date = new Date(day.data+'T12:00:00');
       card.append(element('h4',new Intl.DateTimeFormat('pt-BR',{weekday:'short'}).format(date)),
         element('span',new Intl.DateTimeFormat('pt-BR',{day:'2-digit',month:'2-digit'}).format(date),'day-date'),
-        element('p',day.condicao,'forecast-condition'),element('div',number(day.max_c,'°'),'forecast-temp'),
+        element('span',weatherIcon(day.condicao),'day-icon'), element('p',day.condicao,'forecast-condition'),element('div',number(day.max_c,' °C'),'forecast-temp'),
         element('div',`Mín. ${number(day.min_c,' °C')}`,'forecast-low'),
         element('p',`Chuva: ${number(day.chuva_probabilidade,'%')}`,'forecast-detail'),
         element('p',`Volume: ${number(day.chuva_mm,' mm')}`,'forecast-detail'),
@@ -183,3 +193,17 @@ async function report(save) {
 $('weather-form').addEventListener('submit',searchWeather);
 $('download-pdf').addEventListener('click',() => report(false));
 $('save-s3').addEventListener('click',() => report(true));
+
+function weatherIcon(condition = '') {
+  if (/Trovoada/.test(condition)) return '⛈';
+  if (/chuva|Chuva|Garoa/.test(condition)) return '☂';
+  if (/Neve/.test(condition)) return '❄';
+  if (/nublado|Nublado|Nevoeiro/.test(condition)) return '☁';
+  return condition === 'Céu limpo' ? '☀' : '◌';
+}
+// Blumenau é apenas o local inicial; o usuário pode escolher qualquer resultado.
+(async () => {
+  await searchWeather({preventDefault(){}});
+  const initial = Array.from($('location-results').children).find(node => /Blumenau.*Santa Catarina/.test(node.textContent));
+  if (initial && $('weather-city').value === 'Blumenau') initial.click();
+})();
