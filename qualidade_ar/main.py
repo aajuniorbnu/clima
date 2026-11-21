@@ -52,7 +52,7 @@ async def lifespan(app):
             await task
 
 
-app = FastAPI(title="Pessoa B - Qualidade do Ar", version="1.0.0", lifespan=lifespan)
+app = FastAPI(title="dev2 - Qualidade do Ar", version="1.0.0", lifespan=lifespan)
 
 
 class Medicao(BaseModel):

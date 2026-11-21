@@ -2,7 +2,6 @@ const $ = (id) => document.getElementById(id);
 const formatDate = (date) => new Intl.DateTimeFormat('pt-BR', {dateStyle:'short',timeStyle:'short'}).format(new Date(date));
 let currentCity = 'Itajaí';
 let airLocation = null;
-let historySequence = 0;
 function element(tag, text, className) { const node = document.createElement(tag); node.textContent = text; if (className) node.className = className; return node; }
 async function request(path) {
   const controller = new AbortController();
@@ -43,22 +42,6 @@ function render(data) {
   });
   $('dashboard').hidden = false;
 }
-async function loadHistory() {
-  const sequence = ++historySequence;
-  $('history-status').textContent = 'Carregando histórico…';
-  $('history-body').replaceChildren();
-  try {
-    const rows = await request(`/historico?${airLocation ? `local_id=${airLocation}` : `cidade=${encodeURIComponent(currentCity)}`}&limite=10`);
-    if (sequence !== historySequence) return;
-    $('history-status').textContent = rows.length ? '' : 'Nenhuma consulta salva para esta cidade.';
-    rows.forEach(row => {
-      const tr = document.createElement('tr');
-      const summary = row.medicoes.map(m => `${m.poluente.toUpperCase()}: ${new Intl.NumberFormat('pt-BR').format(m.valor)} ${m.unidade}`).join(' · ') || 'Sem medições';
-      [formatDate(row.consultado_em), row.cidade, summary, row.fonte === 'mock' ? 'Mock · Simulado' : 'OpenAQ'].forEach(text => tr.append(element('td',text)));
-      $('history-body').append(tr);
-    });
-  } catch (error) { if (sequence === historySequence) $('history-status').textContent = `Histórico indisponível: ${error.message}`; }
-}
 async function search(event, place = null) {
   if (event) event.preventDefault();
   const city = $('city').value.trim();
@@ -84,11 +67,7 @@ async function search(event, place = null) {
   for (const button of $('air-locations').children) button.disabled = true;
   airLocation = place.id;
   currentCity = city;
-  ++historySequence;
-  $('history-body').replaceChildren();
-  $('history-status').textContent = '';
   $('search-button').disabled = true;
-  $('refresh-history').disabled = true;
   $('search-button').textContent = 'Consultando…';
   $('feedback').className = 'feedback';
   $('feedback').textContent = `Consultando ${city}…`;
@@ -96,21 +75,18 @@ async function search(event, place = null) {
   try {
     const data = await request(`/qualidade-ar?local_id=${place.id}`);
     render(data);
-    $('feedback').textContent = 'Consulta concluída e salva no histórico.';
+    $('feedback').textContent = 'Consulta concluída.';
   } catch (error) {
     $('feedback').textContent = error.message;
     $('feedback').className = 'feedback error';
   } finally {
     $('search-button').disabled = false;
     $('search-button').textContent = 'Consultar qualidade do ar';
-    $('refresh-history').disabled = false;
-    await loadHistory();
     for (const button of $('air-locations').children) button.disabled = false;
   }
 }
 $('city').addEventListener('input', () => $('city').setCustomValidity(''));
 $('search-form').addEventListener('submit', search);
-$('refresh-history').addEventListener('click', loadHistory);
 search();
 
 // Previsão real: seleção explícita do local antes de consultar e exportar.
@@ -187,7 +163,7 @@ async function report(save) {
   const location = selectedLocation;
   const version = weatherVersion;
   $('download-pdf').disabled = $('save-s3').disabled = true;
-  $('report-status').textContent = save ? 'Gerando PDF e enviando ao S3…' : 'Preparando seu PDF…';
+  $('report-status').textContent = save ? 'Salvando PDF…' : 'Preparando seu PDF…';
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(),120000);
   try {
@@ -200,7 +176,7 @@ async function report(save) {
     }
     if (save) {
       const result = await response.json();
-      if (version === weatherVersion) $('report-status').textContent = `PDF salvo no S3: ${result.uri}`;
+      if (version === weatherVersion) $('report-status').textContent = 'PDF salvo com sucesso.';
     } else {
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);
@@ -210,7 +186,7 @@ async function report(save) {
       if (version === weatherVersion) $('report-status').textContent = 'PDF gerado. O download foi iniciado.';
     }
   } catch (error) {
-    if (version === weatherVersion) $('report-status').textContent = error.name === 'AbortError' ? 'O prazo de espera terminou. Se estava enviando ao S3, confira o bucket antes de tentar novamente.' : error.message;
+    if (version === weatherVersion) $('report-status').textContent = error.name === 'AbortError' ? 'O prazo de espera terminou. Não foi possível confirmar se o PDF foi salvo.' : error.message;
   } finally { clearTimeout(timeout); $('download-pdf').disabled = $('save-s3').disabled = false; }
 }
 $('weather-form').addEventListener('submit',searchWeather);
