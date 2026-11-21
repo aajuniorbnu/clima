@@ -1,4 +1,3 @@
-"""Persistência local; espelhamento PostgreSQL executado pela API."""
 import json
 import sqlite3
 from contextlib import contextmanager
