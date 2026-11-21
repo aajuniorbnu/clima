@@ -1,4 +1,4 @@
-"""Espelho unidirecional: SQLite é a origem; PostgreSQL recebe cópias idempotentes."""
+
 import json
 import logging
 import os

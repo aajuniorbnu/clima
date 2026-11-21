@@ -1,11 +1,12 @@
 const $ = (id) => document.getElementById(id);
 const formatDate = (date) => new Intl.DateTimeFormat('pt-BR', {dateStyle:'short',timeStyle:'short'}).format(new Date(date));
 let currentCity = 'Itajaí';
+let airLocation = null;
 let historySequence = 0;
 function element(tag, text, className) { const node = document.createElement(tag); node.textContent = text; if (className) node.className = className; return node; }
 async function request(path) {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 30000);
+  const timeout = setTimeout(() => controller.abort(), 120000);
   try {
     const response = await fetch(path, {signal:controller.signal});
     const data = await response.json();
@@ -23,6 +24,7 @@ function render(data) {
   $('source-badge').textContent = mock ? 'Demonstração · Mock' : 'Fonte · OpenAQ';
   $('notice').textContent = mock ? 'Modo demonstração: os valores abaixo são fictícios e servem para testar a integração.' : 'Medições da OpenAQ. Confira o horário de cada sensor; dados antigos não descrevem necessariamente as condições atuais.';
   $('station-name').textContent = data.estacao_nome;
+  if (!mock) $('notice').textContent = `Estação a ${data.distancia_km ?? 'N/D'} km do centro pesquisado. Provedor: ${data.provedor || 'OpenAQ'}. A estação pode estar em outro município. Confira a data de cada leitura.`;
   $('updated').textContent = formatDate(data.consultado_em);
   const count = data.medicoes.length;
   $('measurement-count').textContent = `${count} ${count === 1 ? 'medição disponível' : 'medições disponíveis'}`;
@@ -46,7 +48,7 @@ async function loadHistory() {
   $('history-status').textContent = 'Carregando histórico…';
   $('history-body').replaceChildren();
   try {
-    const rows = await request(`/historico?cidade=${encodeURIComponent(currentCity)}&limite=10`);
+    const rows = await request(`/historico?${airLocation ? `local_id=${airLocation}` : `cidade=${encodeURIComponent(currentCity)}`}&limite=10`);
     if (sequence !== historySequence) return;
     $('history-status').textContent = rows.length ? '' : 'Nenhuma consulta salva para esta cidade.';
     rows.forEach(row => {
@@ -57,10 +59,30 @@ async function loadHistory() {
     });
   } catch (error) { if (sequence === historySequence) $('history-status').textContent = `Histórico indisponível: ${error.message}`; }
 }
-async function search(event) {
+async function search(event, place = null) {
   if (event) event.preventDefault();
   const city = $('city').value.trim();
   if (!city) { $('city').setCustomValidity('Informe uma cidade.'); $('city').reportValidity(); return; }
+  if (!place) {
+    $('dashboard').hidden = true;
+    $('air-locations').replaceChildren();
+    $('feedback').textContent = 'Buscando cidades…';
+    $('search-button').disabled = true;
+    try {
+      const places = await request(`/api/locais?nome=${encodeURIComponent(city)}`);
+      $('feedback').textContent = places.length ? 'Selecione a cidade e o estado para consultar a OpenAQ.' : 'Cidade não encontrada.';
+      for (const item of places) {
+        const button = element('button',[item.nome,item.estado,item.pais].filter(Boolean).join(', '),'secondary');
+        button.type = 'button';
+        button.addEventListener('click', () => search(null,item));
+        $('air-locations').append(button);
+      }
+    } catch(error) { $('feedback').textContent = error.message; }
+    finally { $('search-button').disabled = false; }
+    return;
+  }
+  for (const button of $('air-locations').children) button.disabled = true;
+  airLocation = place.id;
   currentCity = city;
   ++historySequence;
   $('history-body').replaceChildren();
@@ -72,7 +94,7 @@ async function search(event) {
   $('feedback').textContent = `Consultando ${city}…`;
   $('dashboard').hidden = true;
   try {
-    const data = await request(`/qualidade-ar?cidade=${encodeURIComponent(city)}`);
+    const data = await request(`/qualidade-ar?local_id=${place.id}`);
     render(data);
     $('feedback').textContent = 'Consulta concluída e salva no histórico.';
   } catch (error) {
@@ -83,6 +105,7 @@ async function search(event) {
     $('search-button').textContent = 'Consultar qualidade do ar';
     $('refresh-history').disabled = false;
     await loadHistory();
+    for (const button of $('air-locations').children) button.disabled = false;
   }
 }
 $('city').addEventListener('input', () => $('city').setCustomValidity(''));

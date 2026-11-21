@@ -1,4 +1,3 @@
-"""Previsão real, relatório PDF e armazenamento privado no S3."""
 import os
 from datetime import datetime, timezone
 from io import BytesIO

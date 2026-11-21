@@ -195,3 +195,11 @@ SELECT cidade, fonte, consultado_em FROM consultas ORDER BY consultado_em DESC;
 ```
 
 Se POSTGRES_DSN estiver vazio, funciona somente com SQLite. Se o PostgreSQL estiver indisponível, a API mantém consultas no SQLite e tenta sincronizar novamente. Faça backup dos dois bancos. Se apagar/restaurar o destino PostgreSQL, remova as confirmações correspondentes de `postgres_enviados` no SQLite para reenviar o histórico; não apague a identidade em sync_metadata. A cópia do mesmo arquivo SQLite mantém a mesma origem intencionalmente.
+
+## Qualidade do ar por cidade (OpenAQ real)
+
+MODO_MOCK=false ativa consulta real. O formulário busca cidades globalmente e exige seleção de estado/país. /api/locais?nome=... retorna candidatos. Use GET /qualidade-ar?local_id=ID e GET /historico?local_id=ID. O cadastro cidades.json só é usado no modo mock legado. Nomes ambíguos sem local_id retornam 409.
+
+A busca OpenAQ é paginada, usa raio de 25 km e exclui estações móveis. Seleciona a estação mais próxima com pelo menos uma leitura recente; sem leituras recentes, apresenta a estação mais próxima com dados válidos e os marca como antigos. São preservados fonte, sensor, unidade, hora, distância e provedor. Não há fallback para mock. Estação próxima não significa estação dentro do município; nenhuma leitura equivale a uma garantia de qualidade do ar. Sem cobertura retorna 404. Histórico é separado pelo ID geográfico e continua sincronizado com PostgreSQL.
+
+Validação real: Itajaí e Blumenau não retornaram estações elegíveis em 25 km; São Paulo retornou uma estação. A cobertura e os horários dependem do provedor e podem mudar.

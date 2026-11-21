@@ -30,7 +30,13 @@ def test_cidade_e_limite(client):
 
 def test_real_sem_estacao(client, monkeypatch):
     monkeypatch.setattr(main, 'MOCK', False)
-    assert client.get('/qualidade-ar?cidade=itajai').status_code == 503
+    async def resolver(*args):
+        return {'id': 1}
+    async def descobrir(*args):
+        raise main.HTTPException(404, 'Sem estação próxima')
+    monkeypatch.setattr(main, 'resolver', resolver)
+    monkeypatch.setattr(main, 'descobrir', descobrir)
+    assert client.get('/qualidade-ar?local_id=1').status_code == 404
     assert client.get('/historico?cidade=itajai').json() == []
 
 
@@ -73,3 +79,20 @@ def test_timeout(client, monkeypatch):
     with pytest.raises(main.HTTPException) as error:
         asyncio.run(main.buscar_openaq(123))
     assert error.value.status_code == 504
+
+
+def test_real_local_dinamico(client, monkeypatch):
+    monkeypatch.setattr(main, 'MOCK', False)
+    async def resolver(*args):
+        return {'id': 999, 'nome': 'Nova cidade', 'estado': 'Estado', 'pais': 'Brasil'}
+    async def descobrir(*args):
+        return ({'id': 8, 'name': 'Estação real', 'provider': {'name': 'Provedor'}},
+                [main.Medicao(sensor_id=42, poluente='pm25', valor=7, unidade='µg/m³',
+                 medido_em=datetime.now(timezone.utc), desatualizado=False)], 2.5)
+    monkeypatch.setattr(main,'resolver',resolver)
+    monkeypatch.setattr(main,'descobrir',descobrir)
+    r=client.get('/qualidade-ar?local_id=999')
+    assert r.status_code==200
+    assert r.json()['fonte']=='openaq'
+    assert r.json()['distancia_km']==2.5
+    assert client.get('/historico?local_id=999').json()==[r.json()]
