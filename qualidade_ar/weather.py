@@ -66,17 +66,34 @@ def condicao(code):
     return 'Não informado'
 
 
+_forecast_cache = {}
+
 @router.get('/previsao')
 async def previsao(local_id: int = Query(..., gt=0)):
+    import time
+    cached = _forecast_cache.get(local_id)
+    if cached and time.monotonic() - cached[0] < 300:
+        return cached[1]
+    result = await _previsao(local_id)
+    if len(_forecast_cache) >= 128:
+        _forecast_cache.clear()
+    _forecast_cache[local_id] = (time.monotonic(), result)
+    return result
+
+async def _previsao(local_id):
     place = await get_json(GEO + '/get', {'id': local_id, 'language': 'pt'})
     if not place or 'id' not in place:
         raise HTTPException(404, 'Local não encontrado. Faça uma nova busca.')
     try:
         local = local_publico(place)
         data = await get_json(FORECAST, {'latitude': local['latitude'], 'longitude': local['longitude'],
-            'daily': ','.join(FIELDS), 'timezone': 'auto', 'forecast_days': 7,
-            'current': 'temperature_2m,relative_humidity_2m,apparent_temperature,is_day,weather_code,wind_speed_10m',
+            'hourly': 'uv_index', 'daily': ','.join(FIELDS), 'timezone': 'auto', 'forecast_days': 7,
+            'current': 'temperature_2m,relative_humidity_2m,apparent_temperature,is_day,weather_code,wind_speed_10m,wind_gusts_10m,precipitation',
             'temperature_unit': 'celsius', 'wind_speed_unit': 'kmh', 'precipitation_unit': 'mm'})
+        current_time = data.get('current', {}).get('time', '')
+        hourly = data.get('hourly', {})
+        uv_pairs = [(t,v) for t,v in zip(hourly.get('time',[]),hourly.get('uv_index',[])) if t <= current_time]
+        uv_time, uv = uv_pairs[-1] if uv_pairs else (None,None)
         daily = data['daily']
         if len(daily['time']) != 7 or any(len(daily[field]) != 7 for field in FIELDS):
             raise ValueError('Previsão incompleta')
@@ -87,7 +104,10 @@ async def previsao(local_id: int = Query(..., gt=0)):
                 'vento_kmh': daily[FIELDS[4]][i], 'condicao': condicao(daily[FIELDS[5]][i])})
         return {'local': local, 'fuso': data['timezone'], 'fonte': 'Open-Meteo',
                 'consultado_em': datetime.now(timezone.utc).isoformat(), 'dias': days,
-                'atual': {'temperatura_c': data.get('current', {}).get('temperature_2m'),
+                'atual': {'uv': uv, 'uv_horario': uv_time,
+                    'chuva_mm': data.get('current',{}).get('precipitation'),
+                    'rajada_kmh': data.get('current',{}).get('wind_gusts_10m'),
+                    'temperatura_c': data.get('current', {}).get('temperature_2m'),
                     'sensacao_c': data.get('current', {}).get('apparent_temperature'),
                     'umidade': data.get('current', {}).get('relative_humidity_2m'),
                     'vento_kmh': data.get('current', {}).get('wind_speed_10m'),

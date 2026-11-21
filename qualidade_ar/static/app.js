@@ -23,6 +23,13 @@ function render(data) {
   $('source-badge').textContent = mock ? 'Demonstração · Mock' : 'Fonte · OpenAQ';
   $('notice').textContent = mock ? 'Modo demonstração: os valores abaixo são fictícios e servem para testar a integração.' : 'Medições da OpenAQ. Confira o horário de cada sensor; dados antigos não descrevem necessariamente as condições atuais.';
   $('station-name').textContent = data.estacao_nome;
+  $('air-index').replaceChildren();
+  const index = data.indice_validado;
+  if(index) {
+    $('air-index').append(element('h3',`Índice de partículas: ${index.valor} · escala US AQI`),element('p',index.observacao,'muted'));
+    for (const sub of index.subindices) $('air-index').append(element('p',`${sub.poluente.toUpperCase()}: ${sub.valor} · ${sub.horas_validas}/12 horas válidas · até ${formatDate(sub.fim)}`));
+  } else $('air-index').append(element('p','Índice indisponível: histórico horário insuficiente.'));
+  for(const reason of data.pendencias_indice || []) $('air-index').append(element('p',reason,'muted'));
   if (!mock) $('notice').textContent = `Estação a ${data.distancia_km ?? 'N/D'} km do centro pesquisado. Provedor: ${data.provedor || 'OpenAQ'}. A estação pode estar em outro município. Confira a data de cada leitura.`;
   $('updated').textContent = formatDate(data.consultado_em);
   const count = data.medicoes.length;
@@ -57,7 +64,7 @@ async function search(event, place = null) {
       for (const item of places) {
         const button = element('button',[item.nome,item.estado,item.pais].filter(Boolean).join(', '),'secondary');
         button.type = 'button';
-        button.addEventListener('click', () => search(null,item));
+        button.addEventListener('click', () => { $('weather-city').value=item.nome; loadForecast(item, null); });
         $('air-locations').append(button);
       }
     } catch(error) { $('feedback').textContent = error.message; }
@@ -87,7 +94,6 @@ async function search(event, place = null) {
 }
 $('city').addEventListener('input', () => $('city').setCustomValidity(''));
 $('search-form').addEventListener('submit', search);
-search();
 
 // Previsão real: seleção explícita do local antes de consultar e exportar.
 let selectedLocation = null;
@@ -99,6 +105,7 @@ async function searchWeather(event) {
   if (query.length < 2) return;
   const version = ++weatherVersion;
   selectedLocation = null;
+  $('dashboard').hidden = true;
   $('forecast-panel').hidden = true;
   $('location-results').replaceChildren();
   $('report-status').textContent = '';
@@ -121,6 +128,7 @@ async function searchWeather(event) {
 async function loadForecast(place, button) {
   const version = ++weatherVersion;
   selectedLocation = null;
+  $('dashboard').hidden = true;
   $('forecast-panel').hidden = true;
   $('report-status').textContent = '';
   $('weather-message').textContent = 'Consultando a previsão real…';
@@ -129,6 +137,7 @@ async function loadForecast(place, button) {
     const data = await request(`/api/previsao?local_id=${place.id}`);
     if (version !== weatherVersion) return;
     selectedLocation = place.id;
+    $('run-result').replaceChildren();
     $('forecast-place').textContent = [data.local.nome,data.local.estado,data.local.pais].filter(Boolean).join(', ');
     $('forecast-timezone').textContent = `Fuso: ${data.fuso} · Consulta: ${formatDate(data.consultado_em)}`;
     const current = data.atual || {};
@@ -156,6 +165,7 @@ async function loadForecast(place, button) {
     });
     $('forecast-panel').hidden = false;
     $('weather-message').textContent = 'Previsão atualizada com dados reais.';
+    loadAlerts();
   } catch (error) { if (version === weatherVersion) $('weather-message').textContent = error.message; }
 }
 async function report(save) {
@@ -206,3 +216,38 @@ function weatherIcon(condition = '') {
   const initial = Array.from($('location-results').children).find(node => /Blumenau.*Santa Catarina/.test(node.textContent));
   if (initial && $('weather-city').value === 'Blumenau') initial.click();
 })();
+
+let alertVersion = 0;
+async function loadAlerts() {
+  const version = ++alertVersion;
+  if (!selectedLocation) return;
+  const id=selectedLocation;
+  $('evaluate-run').disabled=true;
+  $('run-result').textContent='Consultando clima e qualidade do ar…';
+  try {
+    const params=new URLSearchParams({local_id:id,sensivel:$('sensitive').checked});
+    const result=await request(`/api/alerta?${params}`);
+    if (selectedLocation!==id || version!==alertVersion) return;
+    $('run-result').replaceChildren(element('h4',result.mensagem));
+    if(result.dados_ar) {
+      render(result.dados_ar);
+      $('city').value = result.dados_ar.cidade;
+      $('feedback').textContent='Qualidade do ar da mesma cidade e consulta dos alertas.';
+    } else {
+      $('dashboard').hidden=true;
+      $('feedback').textContent='Qualidade do ar indisponível para a cidade selecionada.';
+    }
+    if(result.dados_clima) $('run-result').append(element('p',`Clima: ${result.dados_clima.local.nome} · ${result.dados_clima.atual.horario} (${result.dados_clima.fuso})`,'muted'));
+    for (const [title,items] of [['Riscos',result.riscos],['Dados pendentes',result.pendencias],['Cuidados',result.cuidados]]) {
+      if (!items?.length) continue;
+      $('run-result').append(element('strong',title));
+      const list=document.createElement('ul');
+      items.forEach(item=>list.append(element('li',item)));
+      $('run-result').append(list);
+    }
+    $('run-result').append(element('p',result.escopo,'muted'), element('p', `Consulta concluída em ${new Date().toLocaleTimeString('pt-BR')}`, 'muted'));
+  } catch(error) { if(selectedLocation===id && version===alertVersion) $('run-result').textContent=error.message; }
+  finally { if(version===alertVersion) $('evaluate-run').disabled=false; }
+}
+$('evaluate-run').addEventListener('click',loadAlerts);
+$('sensitive').addEventListener('change',loadAlerts);

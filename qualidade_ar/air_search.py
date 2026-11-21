@@ -1,4 +1,4 @@
-"""Descoberta geográfica de estações OpenAQ, sem cadastro fixo de cidades."""
+
 import os
 import math
 import httpx

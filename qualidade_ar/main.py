@@ -5,6 +5,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from postgres_sync import preparar, sincronizar
 from air_search import resolver, descobrir
+from air_index import indice_estacao
 import banco
 import relatorio
 import json
@@ -74,6 +75,8 @@ class Resposta(BaseModel):
     local_id: Optional[int] = None
     distancia_km: Optional[float] = None
     provedor: Optional[str] = None
+    indice_validado: Optional[dict] = None
+    pendencias_indice: List[str] = []
 
 
 class RelatorioCriado(BaseModel):
@@ -159,7 +162,9 @@ async def consultar(cidade: str, local_id=None) -> Resposta:
     else:
         local = await resolver(cidade, local_id)
         estacao, medicoes, distancia = await descobrir(local, converter, agora)
+        indice, pendencias = await indice_estacao(estacao, agora)
         resposta = Resposta(
+            indice_validado=indice, pendencias_indice=pendencias,
             cidade=', '.join(filter(None,[local['nome'],local['estado'],local['pais']])),
             fonte='openaq', estacao_id=estacao['id'],
             estacao_nome=estacao.get('name') or 'Estação OpenAQ',
@@ -219,3 +224,14 @@ app.mount('/static', StaticFiles(directory=BASE / 'static'), name='static')
 @app.get('/', include_in_schema=False)
 def frontend():
     return FileResponse(BASE / 'static' / 'index.html')
+
+@app.get('/api/alerta', tags=['Alertas'])
+async def alerta(local_id: int = Query(..., gt=0), sensivel: bool = False):
+    try:
+        async with httpx.AsyncClient(timeout=125) as client:
+            r = await client.get(os.getenv('URL_ALERTAS', 'http://127.0.0.1:8003') + '/alerta',
+                params={'local_id':local_id, 'sensivel':str(sensivel).lower()})
+            r.raise_for_status()
+            return r.json()
+    except (httpx.HTTPError, ValueError):
+        raise HTTPException(503, 'Serviço de alertas indisponível. Não foi possível avaliar a corrida.')
